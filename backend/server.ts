@@ -402,11 +402,13 @@ app.post('/api/assistant', async (req, res) => {
       })
     }
 
-    // Use AI/ML API if available (best free tier), then OpenRouter, then OpenAI
-    const oa = new OpenAI({ 
-      apiKey: aimlApiKey || openRouterKey || openAIKey,
-      baseURL: aimlApiKey ? 'https://api.aimlapi.com/v1' : (openRouterKey ? 'https://openrouter.ai/api/v1' : undefined)
-    })
+    // Prefer OpenRouter when configured, then AIML API, then OpenAI
+    const useOpenRouter = !!openRouterKey
+    const useAiml = !useOpenRouter && !!aimlApiKey
+    const apiKey = openRouterKey || aimlApiKey || openAIKey
+    const baseURL = useOpenRouter ? 'https://openrouter.ai/api/v1' : (useAiml ? 'https://api.aimlapi.com/v1' : undefined)
+
+    const oa = new OpenAI({ apiKey, baseURL })
 
     const system = `You are a satellite operations safety assistant. Return JSON with commands.
 Format: {"title":"string","rationale":"string","commands":[{"name":"command","args":{}}]}
@@ -445,11 +447,9 @@ Example space weather: {"title":"SPACE WEATHER ALERT","rationale":"Critical CME 
     }
 
     // Choose model based on provider
-    const model = aimlApiKey
-      ? 'google/gemma-2-9b-it' // AI/ML API - Gemma 2 9B (closest to Gemma 3 12B)
-      : (openRouterKey 
-        ? (process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free')
-        : 'gpt-4o-mini')
+    const model = useOpenRouter
+      ? (process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free')
+      : (useAiml ? 'google/gemma-2-9b-it' : 'gpt-4o-mini')
     
     console.log(`Using model: ${model}`)
     
@@ -528,10 +528,10 @@ Example space weather: {"title":"SPACE WEATHER ALERT","rationale":"Critical CME 
       })
     }
     
-    console.error('assistant_failed', e?.message || e)
+    console.error('[AI] assistant_failed:', e?.message || e, e?.status, e?.response?.data)
     return res.json({ 
       title: 'Assistant Fallback', 
-      rationale: 'AI assistant unavailable. Manual controls still work.', 
+      rationale: `AI assistant unavailable: ${e?.message || 'Unknown error'}. Manual controls still work.`, 
       commands: [] 
     })
   }
