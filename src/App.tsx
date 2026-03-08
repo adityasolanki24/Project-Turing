@@ -124,7 +124,6 @@ function App() {
   // Smooth playback using requestAnimationFrame
   useEffect(() => {
     if (!simRunning) return
-    console.log('[SIM] Playback started, speed=', simSpeed)
     let raf = 0
     let last = performance.now()
     const tick = (now: number) => {
@@ -134,10 +133,7 @@ function App() {
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
-    return () => {
-      console.log('[SIM] Playback stopped')
-      cancelAnimationFrame(raf)
-    }
+    return () => cancelAnimationFrame(raf)
   }, [simRunning, simSpeed])
 
   const simDate = useMemo(() => new Date(Date.now() + simMinutes * 60000), [simMinutes])
@@ -152,14 +148,11 @@ function App() {
       return;
     }
 
-    console.log('[DEMO MODE] Activating simulated threats...');
-    
     // Simulate collision threat
     const demoCollisionTimer = setTimeout(() => {
       if (satellites.length === 0) return;
       
       const targetSat = satellites[0];
-      console.log('[DEMO] Creating simulated collision risk for', targetSat.name);
       
       const demoRisk: CollisionRisk = {
         targetName: 'DEMO DEBRIS OBJECT',
@@ -188,7 +181,6 @@ function App() {
       if (satellites.length === 0) return;
       
       const affectedSats = satellites.slice(0, 2).map(s => s.name);
-      console.log('[DEMO] Creating simulated space weather threat for', affectedSats.join(', '));
       
       const demoWeatherThreat = {
         eventType: 'Coronal Mass Ejection (CME)',
@@ -261,12 +253,6 @@ function App() {
             probability: collisionProb,
             riskLevel: riskLevel
           });
-          
-          console.log(`🚨 ${riskLevel} CONJUNCTION DETECTED:`);
-          console.log(`   ${o1Name} ↔ ${o2Name}`);
-          console.log(`   Miss Distance: ${missDistKm.toFixed(2)} km`);
-          console.log(`   TCA: ${tcaDate.toUTCString()}`);
-          console.log(`   Time to TCA: ${Math.abs(timeToTcaMinutes).toFixed(0)} minutes`);
           
           // Mark as shown
           setAutoAlertShown(prev => new Set([...prev, riskId]));
@@ -452,22 +438,9 @@ function App() {
     });
   }, [satellites, simulatedSatellitePositions]);
 
-  // Debug: Log when userOrbits changes
-  useEffect(() => {
-    console.log('🔄 userOrbits changed:', userOrbits.length, 'orbits');
-    userOrbits.forEach(orbit => {
-      console.log(`   - ${orbit.id}: ${orbit.path.length} points, color: ${orbit.color}`);
-    });
-  }, [userOrbits]);
-
   // Recompute user orbit paths around simDate when simulation is active
   const simulatedUserOrbits = useMemo(() => {
-    if (!simRunning && simMinutes === 0) {
-      console.log('📍 Using userOrbits directly (no simulation):', userOrbits.length, 'orbits');
-      return userOrbits;
-    }
-    
-    console.log('📍 Regenerating userOrbits for simulated time:', userOrbits.length, 'base orbits');
+    if (!simRunning && simMinutes === 0) return userOrbits;
     const paths: { id: string; path: { lat: number; lon: number; altKm: number }[]; color: string }[] = []
     
     for (const userOrbit of userOrbits) {
@@ -721,9 +694,6 @@ function App() {
         const threatId = `${event.type}_${event.startTime}_${affectedSats.map(s => s.id).join('_')}`;
         
         if (!weatherAlertShown.has(threatId)) {
-          console.log('[SpaceWeather] THREAT DETECTED:', event.type, event.severity);
-          console.log('[SpaceWeather] Affected satellites:', affectedSats.map(s => s.name).join(', '));
-          
           const threat = {
             eventType: event.type,
             severity: event.severity,
@@ -822,8 +792,6 @@ function App() {
       const others = prev.filter(o => o.id !== satelliteId);
       return [...others, { id: satelliteId, path: newOrbitPath, color: '#10b981' }]; // Green for maneuvered
     });
-    
-    console.log(`✅ Maneuver applied to ${satellite.name}:`, description);
   };
   
   // Open orbit control panel for a satellite (with optional collision risk)
@@ -1051,14 +1019,6 @@ function App() {
               // Store conjunction marker for visualization
               setConjunctionPoint(conjunctionMarker);
               
-              console.log(`📍 Conjunction at TCA (${tcaDate.toUTCString()})`);
-              console.log(`   Sat1 position: ${pos1.lat.toFixed(4)}°, ${pos1.lon.toFixed(4)}°, ${pos1.altKm.toFixed(2)}km`);
-              console.log(`   Sat2 position: ${pos2.lat.toFixed(4)}°, ${pos2.lon.toFixed(4)}°, ${pos2.altKm.toFixed(2)}km`);
-              console.log(`   ⚠️ Miss distance: ${totalDistance.toFixed(3)} km`);
-              console.log(`   Ground distance: ${groundDistance.toFixed(3)} km, Altitude diff: ${Math.abs(altitudeDiff).toFixed(3)} km`);
-              console.log(`   🎯 Collision probability: ${(collisionProb * 100).toFixed(4)}%`);
-              console.log(`   ⚠️ Risk level: ${riskLevel}`);
-              
               // Auto-open orbit control for CRITICAL or HIGH risk conjunctions
               if (riskLevel === 'CRITICAL' || riskLevel === 'HIGH') {
                 const collisionRisk: CollisionRisk = {
@@ -1075,8 +1035,6 @@ function App() {
                 setTimeout(() => {
                   handleOpenOrbitControl(result1.sat.id, collisionRisk);
                 }, 500); // Small delay to let UI settle
-                
-                console.log(`🚨 ${riskLevel} RISK DETECTED - Opening orbit control panel`);
               }
             }
           } catch (e) {
@@ -1091,10 +1049,7 @@ function App() {
         if (result1) {
           setSelectedSatelliteId(result1.sat.id);
         }
-
-        console.log(`✅ Added ${newSatellites.length} satellite(s) for conjunction visualization!`);
       } else {
-        console.error('❌ Failed to add satellites. Check console for errors.');
         setAddError('Failed to add satellites for conjunction visualization');
       }
     } catch (e: any) {
@@ -1135,8 +1090,6 @@ function App() {
       let name = `SAT ${noradId}`;
       let l1 = '', l2 = '';
       
-      console.log('Parsing TLE for', noradId, '- Lines:', lines);
-      
       // Handle 3LE format: "0 NAME\n1 LINE1\n2 LINE2"
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -1156,15 +1109,8 @@ function App() {
       }
       
       if (!l1 || !l2) {
-        console.error('TLE parse failed for NORAD', noradId);
-        console.error('Raw text:', tleText);
-        console.error('Split lines:', lines);
-        console.error('Found line1:', l1);
-        console.error('Found line2:', l2);
         throw new Error(`Failed to parse TLE for ${noradId} - missing line1 or line2`);
       }
-      
-      console.log('Successfully parsed TLE:', name, l1.substring(0, 20) + '...', l2.substring(0, 20) + '...');
 
       const inclination = parseFloat(l2.substring(8, 16));
       const raan = parseFloat(l2.substring(17, 25));
@@ -1236,10 +1182,6 @@ function App() {
         // Continue anyway - satellite will be added without orbit
       }
       
-      console.log(`✅ Added satellite: ${name} (NORAD ${noradId})`);
-      console.log(`   Altitude: ${altKm.toFixed(0)} km, Inclination: ${inclination.toFixed(1)}°`);
-      console.log(`   Orbit points generated: ${path.length}`);
-      
       // Add satellite to state
       setSatellites(prev => {
         const exists = prev.find(p => p.noradId === sat.noradId);
@@ -1248,15 +1190,10 @@ function App() {
       
       // Add orbit only if generation succeeded
       if (path.length > 0) {
-        console.log(`✅ Adding orbit for ${sat.id} with ${path.length} points and color #10b981`);
         setUserOrbits(prev => {
           const others = prev.filter(p => p.id !== sat.id);
-          const newOrbit = { id: sat.id, path, color: '#10b981' }; // Green for custom added
-          console.log('Current userOrbits:', prev.length, '→ New:', [...others, newOrbit].length);
-          return [...others, newOrbit];
+          return [...others, { id: sat.id, path, color: '#10b981' }];
         });
-      } else {
-        console.warn(`⚠️ No orbit points generated for ${sat.id}`);
       }
       
       setNewNoradId("");
@@ -1285,7 +1222,7 @@ function App() {
     const userOrbitIds = new Set(userOrbits.map(o => o.id));
     const centerTime = (simRunning || simMinutes !== 0) ? simDate : new Date();
     
-    const orbits = satellites
+    return satellites
       .filter(s => s.tle1 && s.tle2 && !userOrbitIds.has(s.id))
       .slice(0, 8)
       .map(s => ({ 
@@ -1293,20 +1230,10 @@ function App() {
         path: generateOrbitPath(s.tle1 as string, s.tle2 as string, undefined, 2, centerTime), 
         color: s.id === selectedSatelliteId ? '#ffd700' : '#60a5fa' 
       }));
-    
-    console.log('[AutoOrbits] Generated', orbits.length, 'auto orbits, excluding', userOrbitIds.size, 'user orbits');
-    orbits.forEach(orbit => {
-      console.log(`   - ${orbit.id}: ${orbit.path.length} points, color: ${orbit.color}`);
-    });
-    return orbits;
   }, [satellites, selectedSatelliteId, userOrbits, simRunning, simMinutes, simDate]);
   
   // Combined orbit paths for rendering
-  const combinedOrbitPaths = useMemo(() => {
-    const combined = [...autoOrbitPaths, ...simulatedUserOrbits];
-    console.log('[CombinedOrbits] Total orbits for rendering:', combined.length, '(', autoOrbitPaths.length, 'auto +', simulatedUserOrbits.length, 'user)');
-    return combined;
-  }, [autoOrbitPaths, simulatedUserOrbits]);
+  const combinedOrbitPaths = useMemo(() => [...autoOrbitPaths, ...simulatedUserOrbits], [autoOrbitPaths, simulatedUserOrbits]);
 
   // Seed local name→NORAD cache from CDM data to improve stability
   useEffect(() => {
@@ -1439,17 +1366,26 @@ function App() {
     return (
       <div style={{
         padding: '2rem',
-        background: '#1a237e',
-        color: '#fff',
+        background: '#050810',
+        color: '#f1f5f9',
         minHeight: '100vh',
-        fontFamily: 'Arial, sans-serif',
+        fontFamily: "'Outfit', system-ui, sans-serif",
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
       }}>
         <div style={{ textAlign: 'center' }}>
-          <h1>Loading Satellite System...</h1>
-          <p>Initializing 3D visualization and APIs...</p>
+          <div style={{
+            width: 48,
+            height: 48,
+            border: '3px solid rgba(59, 130, 246, 0.3)',
+            borderTopColor: '#3b82f6',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+            margin: '0 auto 20px'
+          }} />
+          <h1 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Loading OrbitWatch</h1>
+          <p style={{ color: '#94a3b8', fontSize: 14 }}>Initializing satellite data...</p>
         </div>
       </div>
     );
@@ -1458,39 +1394,73 @@ function App() {
   return (
     <div style={{
       padding: 0,
-      background: '#070b14',
-      color: '#e5e7eb',
+      background: '#050810',
+      color: '#f1f5f9',
       minHeight: '100vh',
-      fontFamily: 'Inter, system-ui, Arial'
+      fontFamily: "'Outfit', system-ui, sans-serif"
     }}>
       <TopBar active={activeTab} onChange={setActiveTab} />
-      <div style={{ display: 'flex', gap: '0.75rem', padding: '12px 16px', borderBottom: '1px solid rgba(51,65,85,0.5)', background: 'rgba(15,23,42,0.8)' }}>
-        <span style={{ padding: '6px 12px', borderRadius: 6, background: 'rgba(7,11,20,0.8)', border: '1px solid rgba(71,85,105,0.4)', fontSize: 14 }}>
-          STATUS: <b style={{ color: systemStatus === 'critical' ? '#ef4444' : systemStatus === 'warning' ? '#f59e0b' : '#10b981' }}>{systemStatus.toUpperCase()}</b>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        padding: '12px 24px',
+        borderBottom: '1px solid rgba(71, 85, 105, 0.2)',
+        background: 'rgba(10, 15, 26, 0.6)',
+        flexWrap: 'wrap'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{
+            padding: '6px 12px',
+            borderRadius: 8,
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(71, 85, 105, 0.3)',
+            fontSize: 13,
+            fontWeight: 500
+          }}>
+            Status: <b style={{ color: systemStatus === 'critical' ? '#ef4444' : systemStatus === 'warning' ? '#f59e0b' : '#10b981' }}>{systemStatus.toUpperCase()}</b>
           </span>
-        <span style={{ padding: '6px 12px', borderRadius: 6, background: 'rgba(7,11,20,0.8)', border: '1px solid rgba(71,85,105,0.4)', fontSize: 14 }}>Satellites: <b style={{color:'#60a5fa'}}>{satellites.length}</b></span>
-        <span style={{ padding: '6px 12px', borderRadius: 6, background: 'rgba(7,11,20,0.8)', border: '1px solid rgba(71,85,105,0.4)', fontSize: 14 }}>Threats: <b style={{color:'#fbbf24'}}>{spaceWeatherEvents.length}</b></span>
-        <span style={{ padding: '6px 12px', borderRadius: 6, background: 'rgba(7,11,20,0.8)', border: '1px solid rgba(71,85,105,0.4)', fontSize: 14 }}>CDMs: <b style={{color:'#a78bfa'}}>{cdmData?.length || 0}</b></span>
-        
-        <button 
+          <span style={{
+            padding: '6px 12px',
+            borderRadius: 8,
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(71, 85, 105, 0.3)',
+            fontSize: 13
+          }}>Sats: <b style={{ color: '#06b6d4' }}>{satellites.length}</b></span>
+          <span style={{
+            padding: '6px 12px',
+            borderRadius: 8,
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(71, 85, 105, 0.3)',
+            fontSize: 13
+          }}>Threats: <b style={{ color: '#f59e0b' }}>{spaceWeatherEvents.length}</b></span>
+          <span style={{
+            padding: '6px 12px',
+            borderRadius: 8,
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(71, 85, 105, 0.3)',
+            fontSize: 13
+          }}>CDMs: <b style={{ color: '#8b5cf6' }}>{cdmData?.length || 0}</b></span>
+        </div>
+        <button
           onClick={() => setDemoMode(!demoMode)}
-          style={{ 
+          style={{
             marginLeft: 'auto',
-            padding: '6px 12px', 
-            borderRadius: 6, 
-            background: demoMode ? 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)' : 'rgba(7,11,20,0.8)', 
-            border: demoMode ? '1px solid #f59e0b' : '1px solid rgba(71,85,105,0.4)', 
+            padding: '6px 14px',
+            borderRadius: 8,
+            background: demoMode ? 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)' : 'rgba(15, 23, 42, 0.8)',
+            border: demoMode ? '1px solid #f59e0b' : '1px solid rgba(71, 85, 105, 0.3)',
             color: demoMode ? '#fff' : '#94a3b8',
-            fontSize: 14,
-            fontWeight: demoMode ? 600 : 400,
+            fontSize: 13,
+            fontWeight: demoMode ? 600 : 500,
             cursor: 'pointer',
             transition: 'all 0.2s',
-            boxShadow: demoMode ? '0 0 12px rgba(245,158,11,0.4)' : 'none'
+            boxShadow: demoMode ? '0 0 16px rgba(245, 158, 11, 0.3)' : 'none'
           }}
         >
-          {demoMode ? 'DEMO MODE ON' : 'Enable Demo Mode'}
+          {demoMode ? '● Demo Mode' : 'Demo Mode'}
         </button>
-        </div>
+      </div>
 
       {error && (
         <div style={{
@@ -1518,60 +1488,150 @@ function App() {
         </div>
       )}
 
-      <main>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '0.75rem 0', padding: '0.75rem', background: 'rgba(100,181,246,0.1)', borderRadius: 8, border: '1px solid rgba(100,181,246,0.3)' }}>
-  <button onClick={() => setSimRunning(r => !r)} style={{ padding: '8px 16px', fontWeight: 'bold', background: simRunning ? '#ef4444' : '#10b981', border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer' }}>{simRunning ? '⏸ Pause' : '▶ Play'}</button>
-  <label style={{ opacity: 0.9, fontWeight: 500 }}>Speed (min/sec)</label>
-  <input type="range" min={0.5} max={60} step={0.5} value={simSpeed} onChange={(e) => setSimSpeed(Number(e.target.value))} style={{ width: 200 }} />
-  <span style={{ width: 60, textAlign: 'right', fontWeight: 'bold', color: '#64b5f6' }}>{simSpeed.toFixed(1)}x</span>
-  <label style={{ opacity: 0.9, marginLeft: 12, fontWeight: 500 }}>Time offset</label>
-  <input type="range" min={-1440} max={1440} step={1} value={simMinutes} onChange={(e) => setSimMinutes(Number(e.target.value))} style={{ width: 300 }} />
-  <span style={{ width: 100, textAlign: 'left', fontWeight: 'bold', color: '#fbbf24' }}>{simMinutes >= 0 ? '+' : ''}{simMinutes.toFixed(0)} min</span>
-  <span style={{ width: 200, textAlign: 'left', opacity: 0.9, fontSize: '0.9rem', color: '#93c5fd' }}>{simDate.toUTCString().slice(0, 25)}</span>
-  <button onClick={() => { setSimRunning(false); setSimSpeed(5); setSimMinutes(0); }} style={{ marginLeft: 8, padding: '6px 10px', background: '#374151', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Now</button>
-</div>
+      <main style={{ padding: '20px 24px' }}>
+        <div style={{
+          display: 'flex',
+          gap: 20,
+          alignItems: 'center',
+          marginBottom: 20,
+          padding: '14px 20px',
+          background: 'rgba(15, 23, 42, 0.6)',
+          borderRadius: 12,
+          border: '1px solid rgba(71, 85, 105, 0.25)',
+          flexWrap: 'wrap'
+        }}>
+          <button
+            onClick={() => setSimRunning(r => !r)}
+            style={{
+              padding: '10px 20px',
+              fontWeight: 600,
+              background: simRunning ? '#ef4444' : '#10b981',
+              border: 'none',
+              color: '#fff',
+              borderRadius: 10,
+              cursor: 'pointer',
+              fontSize: 14,
+              transition: 'all 0.2s'
+            }}
+          >
+            {simRunning ? '⏸ Pause' : '▶ Play'}
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#94a3b8', minWidth: 90 }}>Speed</span>
+            <input type="range" min={0.5} max={60} step={0.5} value={simSpeed} onChange={(e) => setSimSpeed(Number(e.target.value))} style={{ width: 140, accentColor: '#3b82f6' }} />
+            <span style={{ width: 48, fontWeight: 600, color: '#3b82f6', fontSize: 13 }}>{simSpeed.toFixed(1)}x</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#94a3b8', minWidth: 90 }}>Time</span>
+            <input type="range" min={-1440} max={1440} step={1} value={simMinutes} onChange={(e) => setSimMinutes(Number(e.target.value))} style={{ width: 200, accentColor: '#f59e0b' }} />
+            <span style={{ width: 70, fontWeight: 600, color: '#f59e0b', fontSize: 13 }}>{simMinutes >= 0 ? '+' : ''}{simMinutes.toFixed(0)}m</span>
+          </div>
+          <span style={{ fontSize: 13, color: '#94a3b8', fontFamily: "'JetBrains Mono', monospace" }}>{simDate.toUTCString().slice(0, 25)}</span>
+          <button
+            onClick={() => { setSimRunning(false); setSimSpeed(5); setSimMinutes(0); }}
+            style={{
+              padding: '8px 16px',
+              background: 'rgba(71, 85, 105, 0.4)',
+              color: '#94a3b8',
+              border: '1px solid rgba(71, 85, 105, 0.4)',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 500
+            }}
+          >
+            Reset
+          </button>
+        </div>
 
         <div style={{
           display: 'grid',
           gridTemplateColumns: '2fr 1fr',
-          gap: '2rem',
-          marginBottom: '2rem'
+          gap: 24,
+          marginBottom: 24
         }}>
           {activeTab === 'dashboard' && (
             <>
           <div style={{
-                background: 'rgba(7,11,20,0.85)',
-                border: '1px solid rgba(71,85,105,0.35)',
-            borderRadius: '12px',
-                padding: '1.25rem'
+                background: 'rgba(13, 19, 33, 0.9)',
+                border: '1px solid rgba(71, 85, 105, 0.25)',
+                borderRadius: 16,
+                padding: 20,
+                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.3)'
           }}>
-            <h2 style={{ color: '#64b5f6', marginBottom: '1rem' }}>
-              🌍 3D Earth & Satellite Orbits
-            </h2>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-              <button onClick={() => setView('3d')} style={{ padding: '0.25rem 0.5rem' }}>
-                3D
-              </button>
-              <button onClick={() => setView('2d')} style={{ padding: '0.25rem 0.5rem' }}>
-                2D
-              </button>
-              <button onClick={() => setShowOrbits(s => !s)} style={{ padding: '0.25rem 0.5rem', background: showOrbits ? '#10b981' : '#6b7280' }}>
-                {showOrbits ? 'Orbits ON' : 'Orbits OFF'}
-              </button>
-              <button onClick={() => setShowAffected(s => !s)} style={{ padding: '0.25rem 0.5rem' }}>
-                {showAffected ? 'Hide Affected Area' : 'Show Affected Area'}
-              </button>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
-              <input
-                value={newNoradId}
-                onChange={(e) => setNewNoradId(e.target.value)}
-                placeholder="NORAD ID (e.g. 25544)"
-                style={{ padding: '0.25rem 0.5rem' }}
-              />
-              <button onClick={handleAddSatelliteByNorad} disabled={adding} style={{ padding: '0.25rem 0.5rem' }}>
-                {adding ? 'Adding...' : 'Add Satellite'}
-              </button>
-            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+              <h2 style={{ color: '#93c5fd', margin: 0, fontSize: 18, fontWeight: 600 }}>
+                Satellite Map
+              </h2>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={() => setView('3d')} style={{
+                  padding: '8px 14px',
+                  background: view === '3d' ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.8)',
+                  border: view === '3d' ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid rgba(71, 85, 105, 0.3)',
+                  color: view === '3d' ? '#93c5fd' : '#94a3b8',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500
+                }}>3D</button>
+                <button onClick={() => setView('2d')} style={{
+                  padding: '8px 14px',
+                  background: view === '2d' ? 'rgba(59, 130, 246, 0.25)' : 'rgba(15, 23, 42, 0.8)',
+                  border: view === '2d' ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid rgba(71, 85, 105, 0.3)',
+                  color: view === '2d' ? '#93c5fd' : '#94a3b8',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500
+                }}>2D</button>
+                <button onClick={() => setShowOrbits(s => !s)} style={{
+                  padding: '8px 14px',
+                  background: showOrbits ? 'rgba(16, 185, 129, 0.2)' : 'rgba(71, 85, 105, 0.2)',
+                  border: showOrbits ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(71, 85, 105, 0.3)',
+                  color: showOrbits ? '#34d399' : '#94a3b8',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500
+                }}>{showOrbits ? 'Orbits ✓' : 'Orbits'}</button>
+                <button onClick={() => setShowAffected(s => !s)} style={{
+                  padding: '8px 14px',
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  border: '1px solid rgba(71, 85, 105, 0.3)',
+                  color: '#94a3b8',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontSize: 13
+                }}>{showAffected ? 'Hide Weather' : 'Weather'}</button>
+                <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
+                  <input
+                    value={newNoradId}
+                    onChange={(e) => setNewNoradId(e.target.value)}
+                    placeholder="NORAD ID"
+                    style={{
+                      padding: '8px 12px',
+                      width: 120,
+                      background: 'rgba(15, 23, 42, 0.8)',
+                      border: '1px solid rgba(71, 85, 105, 0.3)',
+                      borderRadius: 8,
+                      color: '#f1f5f9',
+                      fontSize: 13
+                    }}
+                  />
+                  <button onClick={handleAddSatelliteByNorad} disabled={adding} style={{
+                    padding: '8px 16px',
+                    background: adding ? '#6b7280' : '#3b82f6',
+                    border: 'none',
+                    color: '#fff',
+                    borderRadius: 8,
+                    cursor: adding ? 'not-allowed' : 'pointer',
+                    fontSize: 13,
+                    fontWeight: 500
+                  }}>
+                    {adding ? '...' : 'Add'}
+                  </button>
+                </div>
+              </div>
             </div>
             <ErrorBoundary onError={(e) => console.log('3D error:', e?.message)}>
               {view === '3d' ? (
@@ -1599,65 +1659,53 @@ function App() {
                 />
               ) : (
                 <Earth2DVisualization
-              satellites={displaySatellites}
-                  selectedSatelliteId={selectedSatelliteId}
-              onSatelliteSelect={handleSatelliteSelect}
-              orbitPaths={showOrbits ? combinedOrbitPaths : []}
-            />
+                satellites={displaySatellites}
+                selectedSatelliteId={selectedSatelliteId}
+                onSatelliteSelect={handleSatelliteSelect}
+                orbitPaths={showOrbits ? combinedOrbitPaths : []}
+                selectedOrbitPath={selectedSatelliteId && showOrbits ? combinedOrbitPaths.find(o => o.id === selectedSatelliteId)?.path : undefined}
+              />
               )}
             </ErrorBoundary>
                 {addError && (
-                  <div style={{ marginTop: '0.5rem', color: '#ffbdbd' }}>
+                  <div style={{ marginTop: 12, padding: 10, background: 'rgba(239, 68, 68, 0.15)', borderRadius: 8, color: '#fca5a5', fontSize: 13 }}>
                     {addError}
                   </div>
                 )}
-            <div style={{ marginTop: '1rem', fontSize: '0.9rem', opacity: 0.8 }}>
-              <p>Click and drag to rotate • Scroll to zoom • Click satellites to select</p>
+            <div style={{ marginTop: 12, fontSize: 12, color: '#64748b' }}>
+              Drag to rotate • Scroll to zoom • Click satellites to select
             </div>
           </div>
 
           {/* Assistant panel moved to top-right - see bottom of file */}
 
           <div style={{
-            background: 'rgba(7,11,20,0.85)',
-            border: '1px solid rgba(71,85,105,0.35)',
-            borderRadius: 12,
-            padding: '1.25rem'
+            background: 'rgba(13, 19, 33, 0.9)',
+            border: '1px solid rgba(71, 85, 105, 0.25)',
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: '0 4px 24px rgba(0, 0, 0, 0.3)'
           }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: '0.75rem' }}>
-              <button onClick={() => setSidePanelTab('tracked')} style={{
-                padding: '6px 10px',
-                background: sidePanelTab === 'tracked' ? 'linear-gradient(90deg,#111827,#0b1220)' : 'transparent',
-                border: sidePanelTab === 'tracked' ? '1px solid rgba(100,181,246,0.35)' : '1px solid rgba(255,255,255,0.12)',
-                color: sidePanelTab === 'tracked' ? '#93c5fd' : '#cbd5e1',
-                borderRadius: 8,
-                cursor: 'pointer'
-              }}>Tracked</button>
-              <button onClick={() => setSidePanelTab('myconj')} style={{
-                padding: '6px 10px',
-                background: sidePanelTab === 'myconj' ? 'linear-gradient(90deg,#111827,#0b1220)' : 'transparent',
-                border: sidePanelTab === 'myconj' ? '1px solid rgba(100,181,246,0.35)' : '1px solid rgba(255,255,255,0.12)',
-                color: sidePanelTab === 'myconj' ? '#93c5fd' : '#cbd5e1',
-                borderRadius: 8,
-                cursor: 'pointer'
-              }}>Conjunctions</button>
-              <button onClick={() => setSidePanelTab('weather')} style={{
-                padding: '6px 10px',
-                background: sidePanelTab === 'weather' ? 'linear-gradient(90deg,#111827,#0b1220)' : 'transparent',
-                border: sidePanelTab === 'weather' ? '1px solid rgba(100,181,246,0.35)' : '1px solid rgba(255,255,255,0.12)',
-                color: sidePanelTab === 'weather' ? '#93c5fd' : '#cbd5e1',
-                borderRadius: 8,
-                cursor: 'pointer'
-              }}>Weather</button>
-              <button onClick={() => setSidePanelTab('maneuvers')} style={{
-                padding: '6px 10px',
-                background: sidePanelTab === 'maneuvers' ? 'linear-gradient(90deg,#111827,#0b1220)' : 'transparent',
-                border: sidePanelTab === 'maneuvers' ? '1px solid rgba(100,181,246,0.35)' : '1px solid rgba(255,255,255,0.12)',
-                color: sidePanelTab === 'maneuvers' ? '#93c5fd' : '#cbd5e1',
-                borderRadius: 8,
-                cursor: 'pointer'
-              }}>Maneuvers {maneuverHistory.length > 0 && `(${maneuverHistory.length})`}</button>
-          </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+              {[
+                { key: 'tracked' as const, label: 'Tracked' },
+                { key: 'myconj' as const, label: 'Conjunctions' },
+                { key: 'weather' as const, label: 'Weather' },
+                { key: 'maneuvers' as const, label: `Maneuvers${maneuverHistory.length > 0 ? ` (${maneuverHistory.length})` : ''}` }
+              ].map(({ key, label }) => (
+                <button key={key} onClick={() => setSidePanelTab(key)} style={{
+                  padding: '8px 14px',
+                  background: sidePanelTab === key ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                  border: sidePanelTab === key ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(71, 85, 105, 0.3)',
+                  color: sidePanelTab === key ? '#93c5fd' : '#94a3b8',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  transition: 'all 0.2s'
+                }}>{label}</button>
+              ))}
+            </div>
             {sidePanelTab === 'tracked' ? (
               <div style={{ maxHeight: '70vh', overflowY: 'auto' }}>
         <div style={{
@@ -1794,22 +1842,50 @@ function App() {
                 <div 
                   key={satellite.id} 
                   style={{
-                      background: selectedSatelliteId === satellite.id ? 'rgba(100, 181, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                      border: selectedSatelliteId === satellite.id ? '2px solid #64b5f6' : '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '8px',
-                    padding: '1rem',
-                  marginBottom: '0.8rem',
+                    background: selectedSatelliteId === satellite.id ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                    border: selectedSatelliteId === satellite.id ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid rgba(71, 85, 105, 0.25)',
+                    borderRadius: 12,
+                    padding: 14,
+                    marginBottom: 12,
                     transition: 'all 0.2s'
                   }}
                 >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <button onClick={() => setSelectedSatelliteId(satellite.id)} style={{ padding: '4px 8px' }}>Select</button>
-                      <button onClick={() => removeSatellite(satellite.id)} style={{ padding: '4px 8px', color: '#fca5a5', border: '1px solid rgba(252,165,165,0.4)', background: 'transparent' }}>Remove</button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <h3 style={{ color: '#93c5fd', margin: 0, fontSize: 15, fontWeight: 600 }}>{satellite.name}</h3>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => handleOpenOrbitControl(satellite.id)} style={{
+                          padding: '6px 10px',
+                          background: 'rgba(59, 130, 246, 0.2)',
+                          border: '1px solid rgba(59, 130, 246, 0.4)',
+                          color: '#93c5fd',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 500
+                        }}>Orbit</button>
+                        <button onClick={() => setSelectedSatelliteId(satellite.id)} style={{
+                          padding: '6px 10px',
+                          background: selectedSatelliteId === satellite.id ? 'rgba(16, 185, 129, 0.2)' : 'rgba(71, 85, 105, 0.3)',
+                          border: '1px solid rgba(71, 85, 105, 0.4)',
+                          color: selectedSatelliteId === satellite.id ? '#34d399' : '#94a3b8',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          fontSize: 12
+                        }}>Select</button>
+                        <button onClick={() => removeSatellite(satellite.id)} style={{
+                          padding: '6px 10px',
+                          color: '#f87171',
+                          border: '1px solid rgba(248, 113, 113, 0.3)',
+                          background: 'transparent',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          fontSize: 12
+                        }}>Remove</button>
+                      </div>
                     </div>
-                    <h3 style={{ color: '#64b5f6', margin: '0.5rem 0 0.5rem 0' }}>🛰️ {satellite.name}</h3>
-                    <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>NORAD ID: {satellite.noradId}</p>
-                    <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>Altitude: {(satellite.position.z || 0).toFixed(1)} km</p>
-                    <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>Inclination: {satellite.orbitalParams.inclination.toFixed(2)}°</p>
+                    <div style={{ fontSize: 12, color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span>NORAD {satellite.noradId} • {(satellite.position.z || 0).toFixed(0)} km • {satellite.orbitalParams.inclination.toFixed(1)}° inc</span>
+                    </div>
                 </div>
               ))}
           </div>
@@ -1935,18 +2011,25 @@ function App() {
           <div style={{ background: 'rgba(16,24,40,0.6)', border: '1px solid rgba(148,163,184,0.18)', borderRadius: 12, padding: '1.25rem' }}>
             <ErrorBoundary onError={(e) => console.log('3D error:', e?.message)}>
               <Earth3DVisualization
-                liveSatellites={simulatedSatellitePositions || satellites.map(s => ({
+                liveSatellites={(simulatedSatellitePositions || satellites.map(s => ({
                   id: s.id,
                   name: s.name,
                   lat: s.position.y || 0,
                   lon: s.position.x || 0,
                   altKm: s.position.z || 0,
                   color: s.id === selectedSatelliteId ? '#ffd700' : '#93c5fd'
+                }))).slice(0, 10).map(sat => ({
+                  ...sat,
+                  color: affectedSatIds.has(sat.id) ? '#ef4444' : sat.color
                 }))}
-    orbitPaths={showOrbits ? combinedOrbitPaths : []}
-    onSelectSatellite={(id) => setSelectedSatelliteId(id)}
-    conjunctionPoint={conjunctionPoint}
-  />
+                orbitPaths={showOrbits ? combinedOrbitPaths : []}
+                onSelectSatellite={(id) => setSelectedSatelliteId(id)}
+                conjunctionPoint={conjunctionPoint}
+                affectedArea={affectedArea as any}
+                gmstRad={gmstRad}
+                eciLiveSatellites={eciLiveSatellites}
+                eciOrbitTrails={showOrbits ? eciOrbitTrails : []}
+              />
             </ErrorBoundary>
           </div>
         )}
@@ -1958,6 +2041,7 @@ function App() {
               selectedSatelliteId={selectedSatelliteId} 
               onSatelliteSelect={handleSatelliteSelect}
               orbitPaths={showOrbits ? combinedOrbitPaths : []}
+              selectedOrbitPath={selectedSatelliteId && showOrbits ? combinedOrbitPaths.find(o => o.id === selectedSatelliteId)?.path : undefined}
             />
           </div>
         )}
@@ -2079,15 +2163,15 @@ function App() {
       </main>
 
       <footer style={{
-        marginTop: '2rem',
-        paddingTop: '1rem',
-        borderTop: '1px solid rgba(255, 255, 255, 0.2)',
+        marginTop: 32,
+        paddingTop: 20,
+        borderTop: '1px solid rgba(71, 85, 105, 0.25)',
         textAlign: 'center',
-        opacity: 0.6,
-        fontSize: '0.8rem'
+        color: '#64748b',
+        fontSize: 13
       }}>
-        <p>ANT61 Hackathon - Professional Satellite Safety System</p>
-        <p>Real APIs • Live Data • 3D Visualization • Space Operations</p>
+        <p style={{ margin: 0 }}>OrbitWatch — Satellite Safety Platform</p>
+        <p style={{ margin: '4px 0 0 0', fontSize: 12 }}>Live TLE • 3D/2D Visualization • Conjunction Monitoring</p>
       </footer>
       
       {/* Orbit Control Panel for collision avoidance */}

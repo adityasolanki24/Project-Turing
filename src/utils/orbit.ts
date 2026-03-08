@@ -81,30 +81,8 @@ export function generateOrbitPath(tle1: string, tle2: string, minutesAhead?: num
       points.push({ lat, lon, altKm })
     }
     
-    // Log orbit statistics for debugging
-    if (points.length > 0) {
-      const altitudes = points.map(p => p.altKm);
-      const minAlt = Math.min(...altitudes);
-      const maxAlt = Math.max(...altitudes);
-      const avgAlt = altitudes.reduce((a, b) => a + b, 0) / altitudes.length;
-      
-      // Determine orbit type
-      let orbitType = 'Unknown';
-      if (avgAlt < 2000) orbitType = 'LEO (Low Earth Orbit)';
-      else if (avgAlt < 35000) orbitType = 'MEO (Medium Earth Orbit)';
-      else if (avgAlt < 40000) orbitType = 'GEO (Geostationary)';
-      else orbitType = 'HEO (High Earth Orbit)';
-      
-      console.log(`✅ Orbit generated: ${points.length} points over ${duration.toFixed(0)} min`);
-      console.log(`   Type: ${orbitType}, Alt: ${minAlt.toFixed(0)}-${maxAlt.toFixed(0)}km (avg ${avgAlt.toFixed(0)}km)`);
-      console.log(`   Period: ${orbitalPeriodMinutes.toFixed(1)} min, Mean Motion: ${meanMotionRevPerDay.toFixed(2)} rev/day`);
-      
-      // Warn if orbit has suspicious characteristics
-      if (maxAlt - minAlt > 2000) {
-        console.warn('⚠️ Highly elliptical orbit - altitude variation:', (maxAlt - minAlt).toFixed(0), 'km');
-      }
-    } else {
-      console.error('❌ Failed to generate any orbit points - check TLE data validity');
+    if (points.length === 0) {
+      console.error('generateOrbitPath: No points generated - check TLE validity');
     }
   } catch (e) {
     console.error('Failed to generate orbit path:', e)

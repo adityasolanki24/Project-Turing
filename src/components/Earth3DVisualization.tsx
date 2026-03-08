@@ -1,9 +1,4 @@
 import { useEffect, useRef } from 'react';
-// ECI conversion helpers (match SatMap style)
-export const eciToThreeJS = (eci: { x: number; y: number; z: number }, scale: number) =>
-  new THREE.Vector3(eci.x * scale, eci.z * scale, -eci.y * scale);
-export const eciVecToThreeJSVec = (eci: { x: number; y: number; z: number }) =>
-  new THREE.Vector3(eci.x, eci.z, -eci.y).normalize();
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
@@ -19,7 +14,7 @@ type AffectedArea = { latThresholdDeg: number; color?: number; opacity?: number 
 
 type ConjunctionPoint = { lat: number; lon: number; altKm: number; tca: string }
 
-export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPaths = [] as OrbitPath[], links = [] as Link[], autoRotate = false, onSelectSatellite, affectedArea, conjunctionPoint, gmstRad = 0 }: { liveSatellites?: LiveSat[]; orbitPaths?: OrbitPath[]; links?: Link[]; autoRotate?: boolean; onSelectSatellite?: (id: string) => void; affectedArea?: AffectedArea; conjunctionPoint?: ConjunctionPoint | null; eciLiveSatellites?: LiveSatEci[]; eciOrbitTrails?: OrbitPathEci[]; gmstRad?: number }) {
+export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPaths = [] as OrbitPath[], links = [] as Link[], autoRotate = false, onSelectSatellite, affectedArea, conjunctionPoint, gmstRad = 0, eciLiveSatellites = [], eciOrbitTrails = [] }: { liveSatellites?: LiveSat[]; orbitPaths?: OrbitPath[]; links?: Link[]; autoRotate?: boolean; onSelectSatellite?: (id: string) => void; affectedArea?: AffectedArea; conjunctionPoint?: ConjunctionPoint | null; eciLiveSatellites?: LiveSatEci[]; eciOrbitTrails?: OrbitPathEci[]; gmstRad?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const satMeshGroupRef = useRef<THREE.Group | null>(null);
   const orbitGroupRef = useRef<THREE.Group | null>(null);
@@ -204,15 +199,29 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
     })
 
     const R = 6371; // km
-    // Satellites (fallback geodetic -> 3D). Can be overridden by ECI props in future.
-    liveSatellites.forEach(s => {
-      const lat = THREE.MathUtils.degToRad(s.lat);
-      const lon = THREE.MathUtils.degToRad(s.lon);
-      const r = 1 + Math.max(0, s.altKm) / R;
-      // Standard mapping: +Z at lon=0°, +X at lon=90°E, +Y north
-      const x = r * Math.cos(lat) * Math.sin(lon);
-      const y = r * Math.sin(lat);
-      const z = r * Math.cos(lat) * Math.cos(lon);
+    const scale = 1 / R; // Earth radius = 1 in scene
+
+    // ECI helper: satellite.js ECI (km) -> Three.js (Y up, Z towards camera)
+    const eciToThreeJS = (eci: { x: number; y: number; z: number }, s: number = scale) =>
+      new THREE.Vector3(eci.x * s, eci.z * s, -eci.y * s);
+
+    // Use ECI when available for correct inertial orbits; otherwise fall back to geodetic
+    const useEci = eciLiveSatellites && eciLiveSatellites.length > 0;
+    const satelliteSource = useEci ? eciLiveSatellites : liveSatellites;
+
+    satelliteSource.forEach((s: any) => {
+      let x: number, y: number, z: number;
+      if (useEci && s.eci) {
+        const pos = eciToThreeJS(s.eci, scale);
+        x = pos.x; y = pos.y; z = pos.z;
+      } else {
+        const lat = THREE.MathUtils.degToRad(s.lat);
+        const lon = THREE.MathUtils.degToRad(s.lon);
+        const r = 1 + Math.max(0, s.altKm) / R;
+        x = r * Math.cos(lat) * Math.sin(lon);
+        y = r * Math.sin(lat);
+        z = r * Math.cos(lat) * Math.cos(lon);
+      }
       const geom = new THREE.SphereGeometry(0.065, 16, 16);
       const mat = new THREE.MeshBasicMaterial({ color: s.color || 0xffd700 });
       const mesh = new THREE.Mesh(geom, mat);
@@ -221,25 +230,40 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
       satGroup.add(mesh);
     });
 
-    // Orbits
-    orbitPaths.forEach(p => {
-      if (!p.path || p.path.length < 2) return
-      const positions: number[] = []
-      p.path.forEach(pt => {
-        const lat = THREE.MathUtils.degToRad(pt.lat)
-        const lon = THREE.MathUtils.degToRad(pt.lon)
-        const r = 1 + Math.max(0, pt.altKm) / R
-        const x = r * Math.cos(lat) * Math.sin(lon)
-        const y = r * Math.sin(lat)
-        const z = r * Math.cos(lat) * Math.cos(lon)
-        positions.push(x, y, z)
-      })
-      const geom = new THREE.BufferGeometry()
-      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-      const mat = new THREE.LineBasicMaterial({ color: p.color || 0x64b5f6, transparent: true, opacity: 0.85, depthWrite: false })
-      const line = new THREE.Line(geom, mat)
-      orbitGroup.add(line)
-    })
+    // Orbits: use ECI when available for correct inertial orbits; merge both sources
+    const eciById = new Map((eciOrbitTrails || []).map((o: any) => [o.id, o]));
+    const allOrbitIds = new Set([...(orbitPaths || []).map((o: any) => o.id), ...(eciOrbitTrails || []).map((o: any) => o.id)]);
+
+    allOrbitIds.forEach((id: string) => {
+      const eciOrbit = eciById.get(id);
+      const geoOrbit = (orbitPaths || []).find((o: any) => o.id === id);
+      const p = eciOrbit || geoOrbit;
+      if (!p) return;
+
+      const points = eciOrbit ? eciOrbit.points : geoOrbit?.path;
+      if (!points || points.length < 2) return;
+
+      const positions: number[] = [];
+      if (eciOrbit) {
+        points.forEach((pt: { x: number; y: number; z: number }) => {
+          const pos = eciToThreeJS(pt, scale);
+          positions.push(pos.x, pos.y, pos.z);
+        });
+      } else {
+        points.forEach((pt: { lat: number; lon: number; altKm: number }) => {
+          const lat = THREE.MathUtils.degToRad(pt.lat);
+          const lon = THREE.MathUtils.degToRad(pt.lon);
+          const r = 1 + Math.max(0, pt.altKm) / R;
+          positions.push(r * Math.cos(lat) * Math.sin(lon), r * Math.sin(lat), r * Math.cos(lat) * Math.cos(lon));
+        });
+      }
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      const color = typeof p.color === 'string' ? parseInt(p.color.replace('#', '0x'), 16) : (p.color || 0x64b5f6);
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false });
+      const line = new THREE.Line(geom, mat);
+      orbitGroup.add(line);
+    });
 
     // Links
     links.forEach(link => {
@@ -301,7 +325,7 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
       buildCap(lat0, true)
       buildCap(lat0, false)
     }
-  }, [liveSatellites, orbitPaths, links, affectedArea]);
+  }, [liveSatellites, orbitPaths, links, affectedArea, eciLiveSatellites, eciOrbitTrails]);
 
   // Render conjunction point marker
   useEffect(() => {
@@ -356,5 +380,5 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
     }
   }, [conjunctionPoint]);
 
-  return <div ref={containerRef} style={{ width: '100%', height: '400px', background: '#000011', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)' }} />;
+  return <div ref={containerRef} style={{ width: '100%', height: '480px', background: '#050810', borderRadius: 12, border: '1px solid rgba(71, 85, 105, 0.2)', overflow: 'hidden' }} />;
 }
