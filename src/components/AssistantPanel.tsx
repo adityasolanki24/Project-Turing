@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 
 type AssistantCommand = {
   name: string
@@ -16,6 +16,8 @@ type AssistantPanelProps = {
   onExecutePlan: (commands: AssistantCommand[]) => void
 }
 
+const STORAGE_KEY = 'orbitwatch-copilot-position'
+
 export const AssistantPanel: React.FC<AssistantPanelProps> = ({ buildState, onExecutePlan }) => {
   const [msg, setMsg] = useState('')
   const [auto, setAuto] = useState(false)
@@ -24,6 +26,43 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({ buildState, onEx
   const [collapsed, setCollapsed] = useState(true) // Start collapsed
   const [hasEmergency, setHasEmergency] = useState(false)
   const lastStateRef = React.useRef<string>('')
+
+  // Draggable position - load from localStorage or default top-right
+  const [position, setPosition] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const { x, y } = JSON.parse(saved)
+        if (typeof x === 'number' && typeof y === 'number') return { x, y }
+      }
+    } catch {}
+    return { x: Math.max(0, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 396), y: 80 }
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null)
+
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(position)) } catch {}
+  }, [position])
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startPosX: position.x, startPosY: position.y }
+    setIsDragging(true)
+  }
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return
+      setPosition({
+        x: Math.max(0, dragRef.current.startPosX + e.clientX - dragRef.current.startX),
+        y: Math.max(0, dragRef.current.startPosY + e.clientY - dragRef.current.startY)
+      })
+    }
+    const onUp = () => { dragRef.current = null; setIsDragging(false) }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+  }, [])
 
   // Check if there are executable commands
   // const canExec = useMemo(() => !!resp && resp.commands && resp.commands.length > 0, [resp])
@@ -92,8 +131,36 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({ buildState, onEx
   }
 
   return (
-    <div style={{ position: 'fixed', right: 16, top: 80, width: collapsed ? 200 : 380, maxHeight: collapsed ? 'auto' : 'calc(100vh - 100px)', overflowY: 'auto', background: 'rgba(7,11,20,0.95)', border: hasEmergency ? '2px solid #ef4444' : '1px solid rgba(100,116,139,0.3)', borderRadius: 12, padding: 14, zIndex: 50, boxShadow: hasEmergency ? '0 0 24px rgba(239,68,68,0.5)' : '0 8px 32px rgba(0,0,0,0.4)', transition: 'all 0.3s ease' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: collapsed ? 0 : 10 }}>
+    <div
+      style={{
+        position: 'fixed',
+        left: position.x,
+        top: position.y,
+        width: collapsed ? 200 : 380,
+        maxHeight: collapsed ? 'auto' : 'calc(100vh - 100px)',
+        overflowY: 'auto',
+        background: 'rgba(7,11,20,0.95)',
+        border: hasEmergency ? '2px solid #ef4444' : '1px solid rgba(100,116,139,0.3)',
+        borderRadius: 12,
+        padding: 14,
+        zIndex: 50,
+        boxShadow: hasEmergency ? '0 0 24px rgba(239,68,68,0.5)' : '0 8px 32px rgba(0,0,0,0.4)',
+        transition: isDragging ? 'none' : 'box-shadow 0.2s, border 0.2s',
+        cursor: 'default'
+      }}
+    >
+      <div
+        onMouseDown={handleMouseDown}
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: collapsed ? 0 : 10,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          userSelect: 'none'
+        }}
+        title="Drag to reposition"
+      >
         <div style={{ fontWeight: 700, color: hasEmergency ? '#ef4444' : '#60a5fa', fontSize: 15 }}>
           {hasEmergency ? 'ALERT' : 'AI Ops Copilot'}
         </div>
