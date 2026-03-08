@@ -5,6 +5,32 @@ export type EciVector = { x: number; y: number; z: number }
 
 const radiansToDegrees = (rad: number) => rad * (180 / Math.PI)
 
+/** Compute point of nearest approach (TCA) - midpoint in ECI space. Returns both geodetic and ECI for 2D/3D. */
+export function conjunctionMidpoint(
+  tle1a: string, tle2a: string,
+  tle1b: string, tle2b: string,
+  at: Date
+): { geodetic: OrbitPoint; eci: EciVector } | null {
+  const e1 = eciFromTLEAt(tle1a, tle2a, at)
+  const e2 = eciFromTLEAt(tle1b, tle2b, at)
+  if (!e1 || !e2) return null
+  const midEci: EciVector = {
+    x: (e1.eci.x + e2.eci.x) / 2,
+    y: (e1.eci.y + e2.eci.y) / 2,
+    z: (e1.eci.z + e2.eci.z) / 2
+  }
+  const gmst = gstime(at)
+  const geo = eciToGeodetic(midEci as any, gmst)
+  return {
+    geodetic: {
+      lat: radiansToDegrees(geo.latitude),
+      lon: radiansToDegrees(geo.longitude),
+      altKm: geo.height
+    },
+    eci: midEci
+  }
+}
+
 export function generateOrbitPath(tle1: string, tle2: string, minutesAhead?: number, stepMinutes: number = 2, centerTime?: Date): OrbitPoint[] {
   const points: OrbitPoint[] = []
   if (!tle1 || !tle2) {

@@ -1,38 +1,42 @@
 type TabKey = 'dashboard' | '3d' | '2d' | 'conjunctions' | 'weather' | 'settings'
 
 export function TopBar({ active, onChange }: { active: TabKey; onChange: (k: TabKey) => void }) {
-  const tabs: { key: TabKey; label: string; icon: string }[] = [
-    { key: 'dashboard', label: 'Dashboard', icon: '◉' },
-    { key: '3d', label: '3D Map', icon: '◆' },
-    { key: '2d', label: '2D Map', icon: '▢' },
-    { key: 'conjunctions', label: 'Conjunctions', icon: '⚠' }
+  const tabs: { key: TabKey; label: string }[] = [
+    { key: 'dashboard', label: 'Dashboard' },
+    { key: '3d', label: '3D Map' },
+    { key: '2d', label: '2D Map' },
+    { key: 'conjunctions', label: 'Conjunctions' }
   ]
   return (
     <header style={{
       display: 'flex',
       alignItems: 'center',
-      gap: 24,
-      padding: '14px 24px',
-      background: 'linear-gradient(180deg, rgba(10, 15, 26, 0.98) 0%, rgba(5, 8, 16, 0.98) 100%)',
-      borderBottom: '1px solid rgba(71, 85, 105, 0.25)',
-      backdropFilter: 'blur(12px)'
+      gap: 32,
+      padding: '16px 28px',
+      background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.98) 0%, rgba(3, 7, 18, 0.98) 100%)',
+      borderBottom: '1px solid rgba(55, 65, 81, 0.4)',
+      backdropFilter: 'blur(20px)'
     }}>
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 10,
+        gap: 12,
         fontWeight: 700,
-        fontSize: 18,
-        letterSpacing: 1,
-        color: '#f1f5f9'
+        fontSize: 20,
+        letterSpacing: -0.5,
+        color: '#f9fafb'
       }}>
-        <span style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: 'linear-gradient(135deg, #3b82f6, #06b6d4)',
-          boxShadow: '0 0 12px rgba(59, 130, 246, 0.6)'
-        }} />
+        <div style={{
+          width: 36,
+          height: 36,
+          borderRadius: 10,
+          background: 'linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 18,
+          boxShadow: '0 4px 12px rgba(59, 130, 246, 0.4)'
+        }}>◉</div>
         OrbitWatch
       </div>
       <nav style={{ display: 'flex', gap: 4 }}>
@@ -41,22 +45,30 @@ export function TopBar({ active, onChange }: { active: TabKey; onChange: (k: Tab
             key={t.key}
             onClick={() => onChange(t.key)}
             style={{
-              padding: '10px 18px',
-              background: active === t.key ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-              border: active === t.key ? '1px solid rgba(59, 130, 246, 0.5)' : '1px solid transparent',
-              color: active === t.key ? '#93c5fd' : '#94a3b8',
+              padding: '12px 20px',
+              background: active === t.key ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+              border: 'none',
+              color: active === t.key ? '#93c5fd' : '#9ca3af',
               borderRadius: 10,
               cursor: 'pointer',
               fontSize: 14,
               fontWeight: active === t.key ? 600 : 500,
               transition: 'all 0.2s',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
+              position: 'relative'
             }}
           >
-            <span style={{ opacity: 0.8, fontSize: 12 }}>{t.icon}</span>
             {t.label}
+            {active === t.key && (
+              <div style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 20,
+                right: 20,
+                height: 2,
+                background: 'linear-gradient(90deg, #3b82f6, #06b6d4)',
+                borderRadius: 1
+              }} />
+            )}
           </button>
         ))}
       </nav>

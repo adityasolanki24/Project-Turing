@@ -12,7 +12,7 @@ type Link = { id: string; a: LiveSat; b: LiveSat; color?: string }
 
 type AffectedArea = { latThresholdDeg: number; color?: number; opacity?: number }
 
-type ConjunctionPoint = { lat: number; lon: number; altKm: number; tca: string }
+type ConjunctionPoint = { lat: number; lon: number; altKm: number; tca: string; eci?: { x: number; y: number; z: number } }
 
 export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPaths = [] as OrbitPath[], links = [] as Link[], autoRotate = false, onSelectSatellite, affectedArea, conjunctionPoint, gmstRad = 0, eciLiveSatellites = [], eciOrbitTrails = [] }: { liveSatellites?: LiveSat[]; orbitPaths?: OrbitPath[]; links?: Link[]; autoRotate?: boolean; onSelectSatellite?: (id: string) => void; affectedArea?: AffectedArea; conjunctionPoint?: ConjunctionPoint | null; eciLiveSatellites?: LiveSatEci[]; eciOrbitTrails?: OrbitPathEci[]; gmstRad?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -74,7 +74,7 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
     label.style.color = '#fff';
     label.style.borderRadius = '4px';
     label.style.pointerEvents = 'none';
-    label.innerHTML = '🖱️ Drag to rotate • Scroll to zoom<br/>💥 <span style="color: #ff0066">Pink marker</span> = Conjunction point';
+    label.innerHTML = 'Drag to rotate • Scroll to zoom • <span style="color: #f472b6">Pink = TCA point</span>';
     container.style.position = 'relative';
     container.appendChild(label);
 
@@ -259,7 +259,8 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
       }
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      const color = typeof p.color === 'string' ? parseInt(p.color.replace('#', '0x'), 16) : (p.color || 0x64b5f6);
+      const colorVal = (geoOrbit?.color || p.color) ?? 0x64b5f6;
+      const color = typeof colorVal === 'string' ? parseInt(colorVal.replace('#', '0x'), 16) : (colorVal || 0x64b5f6);
       const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false });
       const line = new THREE.Line(geom, mat);
       orbitGroup.add(line);
@@ -330,8 +331,6 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
   // Render conjunction point marker
   useEffect(() => {
     const conjGroup = conjunctionGroupRef.current;
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
     if (!conjGroup) return;
     
     // Clear existing markers
@@ -346,15 +345,25 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
     
     if (!conjunctionPoint) return;
     
-    const { lat, lon, altKm } = conjunctionPoint;
-    const latRad = THREE.MathUtils.degToRad(lat);
-    const lonRad = THREE.MathUtils.degToRad(lon);
-    const r = 1 + altKm / 6371;
-    
-    // Standard Three.js spherical coordinates
-    const x = r * Math.cos(latRad) * Math.sin(lonRad);
-    const y = r * Math.sin(latRad);
-    const z = r * Math.cos(latRad) * Math.cos(lonRad);
+    const R = 6371;
+    const scale = 1 / R;
+    let x: number, y: number, z: number;
+    if (conjunctionPoint.eci) {
+      const pos = new THREE.Vector3(
+        conjunctionPoint.eci.x * scale,
+        conjunctionPoint.eci.z * scale,
+        -conjunctionPoint.eci.y * scale
+      );
+      x = pos.x; y = pos.y; z = pos.z;
+    } else {
+      const { lat, lon, altKm } = conjunctionPoint;
+      const latRad = THREE.MathUtils.degToRad(lat);
+      const lonRad = THREE.MathUtils.degToRad(lon);
+      const r = 1 + altKm / R;
+      x = r * Math.cos(latRad) * Math.sin(lonRad);
+      y = r * Math.sin(latRad);
+      z = r * Math.cos(latRad) * Math.cos(lonRad);
+    }
     
     // Create small, simple marker at conjunction point
     const markerGeom = new THREE.SphereGeometry(0.015, 16, 16);
@@ -367,17 +376,6 @@ export function Earth3DVisualization({ liveSatellites = [] as LiveSat[], orbitPa
     const marker = new THREE.Mesh(markerGeom, markerMat);
     marker.position.set(x, y, z);
     conjGroup.add(marker);
-    
-    // Zoom camera to conjunction point
-    if (camera && controls) {
-      const targetPos = new THREE.Vector3(x, y, z);
-      const distance = 2.5; // Distance from conjunction point
-      const direction = targetPos.clone().normalize();
-      camera.position.copy(direction.multiplyScalar(distance));
-      camera.lookAt(0, 0, 0);
-      controls.target.set(0, 0, 0);
-      controls.update();
-    }
   }, [conjunctionPoint]);
 
   return <div ref={containerRef} style={{ width: '100%', height: '480px', background: '#050810', borderRadius: 12, border: '1px solid rgba(71, 85, 105, 0.2)', overflow: 'hidden' }} />;

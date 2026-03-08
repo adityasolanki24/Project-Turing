@@ -8,7 +8,7 @@ import { OrbitControlPanel } from './components/OrbitControlPanel';
 import { SpaceWeatherMonitor } from './components/SpaceWeatherMonitor';
 import { TopBar } from './components/TopBar';
 import { useConjunctions } from './hooks/useConjunctions';
-import { generateOrbitPath, currentGeodeticFromTLE, createTLEFromKeplerian, KeplerianElements, geodeticFromTLEAt, eciFromTLEAt, generateEciTrack } from './utils/orbit';
+import { generateOrbitPath, currentGeodeticFromTLE, createTLEFromKeplerian, KeplerianElements, geodeticFromTLEAt, eciFromTLEAt, generateEciTrack, conjunctionMidpoint } from './utils/orbit';
 import { calculateCollisionProbability, assessRiskLevel, CollisionRisk } from './utils/collisionRisk';
 import { gstime } from 'satellite.js';
 
@@ -82,7 +82,7 @@ function App() {
   // simSpeed is minutes advanced per real second
   const [simSpeed, setSimSpeed] = useState<number>(5)
   const tleLookupRequestedRef = useRef<Record<string, boolean>>({})
-  const [conjunctionPoint, setConjunctionPoint] = useState<{ lat: number; lon: number; altKm: number; tca: string } | null>(null)
+  const [conjunctionPoint, setConjunctionPoint] = useState<{ lat: number; lon: number; altKm: number; tca: string; eci?: { x: number; y: number; z: number } } | null>(null)
   const [showOrbits, setShowOrbits] = useState<boolean>(true)
   
   // Orbit control and collision avoidance
@@ -352,15 +352,13 @@ function App() {
     return out
   }, [satellites, simDate, simRunning, simMinutes, selectedSatelliteId])
 
-  // ECI orbit trails for 3D (one period centered at view time)
+  // ECI orbit trails for 3D - include ALL satellites for correct inertial orbits (incl. conjunction view)
   const eciOrbitTrails = useMemo(() => {
     const centerTime = (simRunning || simMinutes !== 0) ? simDate : new Date();
-    const userOrbitIds = new Set(userOrbits.map(o => o.id));
     return satellites
-      .filter(s => s.tle1 && s.tle2 && !userOrbitIds.has(s.id))
-      .slice(0, 8)
+      .filter(s => s.tle1 && s.tle2)
+      .slice(0, 12)
       .map(s => {
-        // derive orbital period minutes from TLE line2 (cols 52-63)
         let duration = 90;
         try {
           const mm = parseFloat((s.tle2 as string).substring(52, 63));
@@ -369,7 +367,7 @@ function App() {
         const points = generateEciTrack(s.tle1 as string, s.tle2 as string, duration, 2, centerTime).map(p => p.eci);
         return { id: s.id, points, color: s.id === selectedSatelliteId ? '#ffd700' : '#60a5fa' };
       });
-  }, [satellites, userOrbits, selectedSatelliteId, simRunning, simMinutes, simDate])
+  }, [satellites, selectedSatelliteId, simRunning, simMinutes, simDate])
 
   // Precompute simulated satellite positions at simDate
   const simulatedSatellitePositions = useMemo(() => {
@@ -662,9 +660,10 @@ function App() {
   useEffect(() => {
     if (satellites.length === 0) return;
     const id = setInterval(() => {
+      const when = (simMinutes !== 0 && !simRunning) ? new Date(Date.now() + simMinutes * 60000) : new Date();
       setSatellites(prev => prev.map(s => {
         if (!s.tle1 || !s.tle2) return s;
-        const geo = currentGeodeticFromTLE(s.tle1, s.tle2);
+        const geo = geodeticFromTLEAt(s.tle1, s.tle2, when);
         if (!geo) return s;
         return {
           ...s,
@@ -674,7 +673,7 @@ function App() {
       }));
     }, 2000);
     return () => clearInterval(id);
-  }, [satellites.length]);
+  }, [satellites.length, simMinutes, simRunning]);
 
   // Listen for high severity GST from SpaceWeatherMonitor via global listener
   // We can also compute a simple Kp from processed events; for now keep local setter via callback
@@ -1008,13 +1007,15 @@ function App() {
               const collisionProb = calculateCollisionProbability(totalDistance, relativeVelocityKmS);
               const riskLevel = assessRiskLevel(totalDistance, Math.abs(timeToTcaMinutes));
               
-              // Use midpoint between satellites for marker
-              conjunctionMarker = {
-                lat: (pos1.lat + pos2.lat) / 2,
-                lon: (pos1.lon + pos2.lon) / 2,
-                altKm: (pos1.altKm + pos2.altKm) / 2,
-                tca: tcaDate.toISOString()
-              };
+              // Use proper 3D midpoint (ECI) for point of nearest approach
+              const midpoint = conjunctionMidpoint(
+                result1.tle1, result1.tle2,
+                result2.tle1, result2.tle2,
+                tcaDate
+              );
+              conjunctionMarker = midpoint
+                ? { ...midpoint.geodetic, tca: tcaDate.toISOString(), eci: midpoint.eci }
+                : { lat: (pos1.lat + pos2.lat) / 2, lon: (pos1.lon + pos2.lon) / 2, altKm: (pos1.altKm + pos2.altKm) / 2, tca: tcaDate.toISOString() };
               
               // Store conjunction marker for visualization
               setConjunctionPoint(conjunctionMarker);
@@ -1369,7 +1370,7 @@ function App() {
         background: '#050810',
         color: '#f1f5f9',
         minHeight: '100vh',
-        fontFamily: "'Outfit', system-ui, sans-serif",
+        fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center'
@@ -1404,58 +1405,25 @@ function App() {
         display: 'flex',
         alignItems: 'center',
         gap: 16,
-        padding: '12px 24px',
-        borderBottom: '1px solid rgba(71, 85, 105, 0.2)',
-        background: 'rgba(10, 15, 26, 0.6)',
+        padding: '14px 28px',
+        borderBottom: '1px solid rgba(55, 65, 81, 0.35)',
+        background: 'rgba(17, 24, 39, 0.5)',
         flexWrap: 'wrap'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <span style={{
-            padding: '6px 12px',
-            borderRadius: 8,
-            background: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(71, 85, 105, 0.3)',
-            fontSize: 13,
-            fontWeight: 500
-          }}>
+          <span className="ow-stat">
             Status: <b style={{ color: systemStatus === 'critical' ? '#ef4444' : systemStatus === 'warning' ? '#f59e0b' : '#10b981' }}>{systemStatus.toUpperCase()}</b>
           </span>
-          <span style={{
-            padding: '6px 12px',
-            borderRadius: 8,
-            background: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(71, 85, 105, 0.3)',
-            fontSize: 13
-          }}>Sats: <b style={{ color: '#06b6d4' }}>{satellites.length}</b></span>
-          <span style={{
-            padding: '6px 12px',
-            borderRadius: 8,
-            background: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(71, 85, 105, 0.3)',
-            fontSize: 13
-          }}>Threats: <b style={{ color: '#f59e0b' }}>{spaceWeatherEvents.length}</b></span>
-          <span style={{
-            padding: '6px 12px',
-            borderRadius: 8,
-            background: 'rgba(15, 23, 42, 0.8)',
-            border: '1px solid rgba(71, 85, 105, 0.3)',
-            fontSize: 13
-          }}>CDMs: <b style={{ color: '#8b5cf6' }}>{cdmData?.length || 0}</b></span>
+          <span className="ow-stat">Sats: <b style={{ color: '#06b6d4' }}>{satellites.length}</b></span>
+          <span className="ow-stat">Threats: <b style={{ color: '#f59e0b' }}>{spaceWeatherEvents.length}</b></span>
+          <span className="ow-stat">CDMs: <b style={{ color: '#8b5cf6' }}>{cdmData?.length || 0}</b></span>
         </div>
         <button
           onClick={() => setDemoMode(!demoMode)}
+          className={demoMode ? 'ow-btn ow-btn-primary' : 'ow-btn ow-btn-secondary'}
           style={{
             marginLeft: 'auto',
-            padding: '6px 14px',
-            borderRadius: 8,
-            background: demoMode ? 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)' : 'rgba(15, 23, 42, 0.8)',
-            border: demoMode ? '1px solid #f59e0b' : '1px solid rgba(71, 85, 105, 0.3)',
-            color: demoMode ? '#fff' : '#94a3b8',
-            fontSize: 13,
-            fontWeight: demoMode ? 600 : 500,
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            boxShadow: demoMode ? '0 0 16px rgba(245, 158, 11, 0.3)' : 'none'
+            ...(demoMode && { background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)', boxShadow: '0 0 20px rgba(245, 158, 11, 0.3)' })
           }}
         >
           {demoMode ? '● Demo Mode' : 'Demo Mode'}
@@ -1488,16 +1456,13 @@ function App() {
         </div>
       )}
 
-      <main style={{ padding: '20px 24px' }}>
-        <div style={{
+      <main style={{ padding: '24px 28px' }}>
+        <div className="ow-card" style={{
           display: 'flex',
-          gap: 20,
+          gap: 24,
           alignItems: 'center',
-          marginBottom: 20,
-          padding: '14px 20px',
-          background: 'rgba(15, 23, 42, 0.6)',
-          borderRadius: 12,
-          border: '1px solid rgba(71, 85, 105, 0.25)',
+          marginBottom: 24,
+          padding: '18px 24px',
           flexWrap: 'wrap'
         }}>
           <button
@@ -1552,13 +1517,7 @@ function App() {
         }}>
           {activeTab === 'dashboard' && (
             <>
-          <div style={{
-                background: 'rgba(13, 19, 33, 0.9)',
-                border: '1px solid rgba(71, 85, 105, 0.25)',
-                borderRadius: 16,
-                padding: 20,
-                boxShadow: '0 4px 24px rgba(0, 0, 0, 0.3)'
-          }}>
+          <div className="ow-card" style={{ padding: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
               <h2 style={{ color: '#93c5fd', margin: 0, fontSize: 18, fontWeight: 600 }}>
                 Satellite Map
@@ -1605,18 +1564,11 @@ function App() {
                 }}>{showAffected ? 'Hide Weather' : 'Weather'}</button>
                 <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
                   <input
+                    className="ow-input"
                     value={newNoradId}
                     onChange={(e) => setNewNoradId(e.target.value)}
                     placeholder="NORAD ID"
-                    style={{
-                      padding: '8px 12px',
-                      width: 120,
-                      background: 'rgba(15, 23, 42, 0.8)',
-                      border: '1px solid rgba(71, 85, 105, 0.3)',
-                      borderRadius: 8,
-                      color: '#f1f5f9',
-                      fontSize: 13
-                    }}
+                    style={{ width: 120 }}
                   />
                   <button onClick={handleAddSatelliteByNorad} disabled={adding} style={{
                     padding: '8px 16px',
@@ -1679,13 +1631,7 @@ function App() {
 
           {/* Assistant panel moved to top-right - see bottom of file */}
 
-          <div style={{
-            background: 'rgba(13, 19, 33, 0.9)',
-            border: '1px solid rgba(71, 85, 105, 0.25)',
-            borderRadius: 16,
-            padding: 20,
-            boxShadow: '0 4px 24px rgba(0, 0, 0, 0.3)'
-          }}>
+          <div className="ow-card" style={{ padding: 24 }}>
             <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
               {[
                 { key: 'tracked' as const, label: 'Tracked' },
@@ -1895,16 +1841,16 @@ function App() {
                 {!cdmData || (cdmData as any[]).length === 0 ? (
                   <p style={{ opacity: 0.8 }}>No recent conjunctions.</p>
                 ) : (
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                  <table className="ow-table">
                     <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                        <th align="left">Obj 1</th>
-                        <th align="left">ID 1</th>
-                        <th align="left">Obj 2</th>
-                        <th align="left">ID 2</th>
-                        <th align="left">Miss (km)</th>
-                        <th align="left">Rel (km/s)</th>
-                        <th align="left">TCA</th>
+                      <tr>
+                        <th>Obj 1</th>
+                        <th>ID 1</th>
+                        <th>Obj 2</th>
+                        <th>ID 2</th>
+                        <th>Miss (km)</th>
+                        <th>Rel (km/s)</th>
+                        <th>TCA</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1931,16 +1877,7 @@ function App() {
                           const n = Number(s); return isFinite(n) ? (n).toFixed(2) : '—'
                         })()
                         return (
-                          <tr 
-                            key={i}
-                            onClick={() => handleConjunctionClick(d)}
-                            style={{
-                              cursor: 'pointer',
-                              transition: 'background 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(100,181,246,0.15)'}
-                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                          >
+                          <tr key={i} onClick={() => handleConjunctionClick(d)}>
                             <td>{o1Name}</td>
                             <td>{o1Id || '—'}</td>
                             <td>{o2Name}</td>
@@ -2047,13 +1984,7 @@ function App() {
         )}
 
         {activeTab === 'conjunctions' && (
-        <div style={{
-          background: 'rgba(7,11,20,0.85)',
-          border: '1px solid rgba(71,85,105,0.35)',
-          borderRadius: '12px',
-          padding: '1.25rem',
-          marginTop: '2rem'
-        }}>
+        <div className="ow-card" style={{ marginTop: 24, padding: 24 }}>
           <h2 style={{ color: '#64b5f6', marginBottom: '1rem' }}>🚨 Real Conjunction Alerts</h2>
           {cdmError && (
             <div style={{ color: '#ffbdbd', marginBottom: '0.5rem' }}>Failed to load CDM feed</div>
@@ -2063,16 +1994,16 @@ function App() {
           ) : !cdmData || (cdmData as any[]).length === 0 ? (
             <p style={{ opacity: 0.7 }}>No conjunctions detected in the past 3 days.</p>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+            <table className="ow-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                  <th align="left">Object 1</th>
-                  <th align="left">NORAD 1</th>
-                  <th align="left">Object 2</th>
-                  <th align="left">NORAD 2</th>
-                  <th align="left">Miss Distance (km)</th>
-                  <th align="left">Relative Speed (km/s)</th>
-                  <th align="left">TCA (UTC)</th>
+                <tr>
+                  <th>Object 1</th>
+                  <th>NORAD 1</th>
+                  <th>Object 2</th>
+                  <th>NORAD 2</th>
+                  <th>Miss (km)</th>
+                  <th>Rel (km/s)</th>
+                  <th>TCA (UTC)</th>
                 </tr>
               </thead>
               <tbody>
@@ -2135,16 +2066,7 @@ function App() {
                   })()
 
                   return (
-                    <tr 
-                      key={(d as any).id || d.CDM_ID}
-                      onClick={() => handleConjunctionClick(d)}
-                      style={{
-                        cursor: 'pointer',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(100,181,246,0.15)'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
+                    <tr key={(d as any).id || d.CDM_ID} onClick={() => handleConjunctionClick(d)}>
                       <td>{o1Name}</td>
                       <td>{o1Id || '—'}</td>
                       <td>{o2Name}</td>
