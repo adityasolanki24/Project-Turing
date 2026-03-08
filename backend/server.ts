@@ -448,7 +448,7 @@ Example space weather: {"title":"SPACE WEATHER ALERT","rationale":"Critical CME 
     const model = aimlApiKey
       ? 'google/gemma-2-9b-it' // AI/ML API - Gemma 2 9B (closest to Gemma 3 12B)
       : (openRouterKey 
-        ? 'google/gemini-2.0-flash-exp:free' 
+        ? (process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free')
         : 'gpt-4o-mini')
     
     console.log(`Using model: ${model}`)
