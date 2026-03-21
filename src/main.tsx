@@ -13,6 +13,7 @@ root.render(
     <ErrorBoundary fullScreen>
       <App />
     </ErrorBoundary>
-    <Analytics />
+    {/* production = sends to Vercel dashboard; development = console only (localhost never shows in dashboard) */}
+    <Analytics mode={import.meta.env.PROD ? 'production' : 'development'} debug={import.meta.env.DEV} />
   </React.StrictMode>,
 )
