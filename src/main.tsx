@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import { Analytics } from '@vercel/analytics/react'
 import './index.css'
 import ErrorBoundary from './components/ErrorBoundary'
 import App from './App'
@@ -12,5 +13,6 @@ root.render(
     <ErrorBoundary fullScreen>
       <App />
     </ErrorBoundary>
+    <Analytics />
   </React.StrictMode>,
 )
